@@ -1,0 +1,1156 @@
+---
+title: "DSC532-Regression-EDA"
+author: "Leonidas Ioannou, Ioustina Harasim, Fedor Turchenko"
+date: "2023-04-23"
+output: html_document
+---
+
+```{r setup, message=FALSE}
+library(ggplot2)
+library(tidyverse)
+library(gridExtra)
+library(corrplot)
+library(pivottabler)
+options(repr.plot.width = 8, repr.plot.height = 6, repr.plot.res = 200)
+```
+
+# Preprocessing
+```{r}
+# Import the data
+d1=read.csv("student-mat.csv",sep=";",header=TRUE)
+d2=read.csv("student-por.csv",sep=";",header=TRUE)
+
+# Merge
+df=merge(
+  d1,
+  d2[c("school","sex","age","address","famsize","Pstatus","Medu","Fedu","Mjob","Fjob","reason","nursery","internet")],
+  by=c("school","sex","age","address","famsize","Pstatus","Medu","Fedu","Mjob","Fjob","reason","nursery","internet")
+)
+
+print(nrow(df)) # 382 students
+```
+
+
+```{r}
+# Column names
+colnames(df)
+```
+
+```{r}
+# Dimension of the dataframe
+dim(df)
+```
+
+```{r}
+# Find columns with missing values
+colSums(is.na(df))
+```
+
+```{r}
+# Find duplicates
+cat(round((sum(duplicated(df))/nrow(df))*100,3),'%') #percentage of duplicates
+```
+
+```{r}
+sum(df$G3 == 0)
+```
+
+```{r}
+df_num <- data.frame(df$age, df$failures, df$absences, df$G1, df$G2, df$G3)
+
+# Finding outliers using IQR
+# If a value is less than Q1-1.5IQR or greater than Q3+1.5IQR, it's considered as an outlier
+find_outliers <- function(x){
+  Q1 <- quantile(x, .25)
+  Q3 <- quantile(x, .75)
+  IQR <- IQR(x)
+  Tmin = Q1 - 1.5*IQR
+  Tmax = Q3 + 1.5*IQR
+  num <- length(x[which(x < Tmin | x > Tmax)])
+  num
+}
+
+outliers=c()
+for (i in 1:ncol(df_num)){
+  outliers[i]=find_outliers(df_num[1:nrow(df_num),i])
+}
+outliers = as.data.frame(round(((outliers/nrow(df_num))*100),2)) # Percentage of outliers for each feature
+outliers$col = colnames(df_num) # Add the name of each column
+outliers
+```
+
+# Data Exploration and visualization
+# General Plots
+```{r}
+# Plot of the student's school
+schoolplot <- df %>%
+  count(school) %>% # Count the number of occurrences
+  mutate(
+    perc = round(proportions(n) * 100, 1), # Percentage
+    res = str_c(n, "(", perc, ")%"),
+    school = as.factor(school)
+  )
+
+ggplot(schoolplot, aes(x = school , y = n, fill = school))  +
+  geom_col() +
+  geom_text(aes(label = res), colour = "black", vjust = -0.5) + 
+  theme(legend.position="none") +
+  labs(x="School", y="Count")  # Labels for x,y axes
+```
+
+```{r}
+# Plot of the student's gender
+genderplot <- df %>%
+  count(sex) %>% # Count the number of occurrences
+  mutate(
+    perc = round(proportions(n) * 100, 1), # Percentage
+    res = str_c(n, "(", perc, ")%"),
+    sex = as.factor(sex)
+  )
+
+ggplot(genderplot, aes(x = sex , y = n, fill = sex))  +
+  geom_col() +
+  geom_text(aes(label = res), colour = "black", vjust = -0.5) + 
+  theme(legend.position="none") +
+  labs(x="Gender", y="Count")  # Labels for x,y axes
+```
+
+```{r}
+# Summary statistics of Age
+summary(df$age)
+
+p1<-ggplot(df,aes(age))+geom_histogram(fill="lightblue", color='black', bins=30) 
+p2<-ggplot(df,aes(age))+geom_boxplot(fill="lightblue")
+grid.arrange(p1,p2)
+```
+
+```{r}
+# Plot of the student's address
+# U - urban, R - rural
+addressplot <- df %>%
+  count(address) %>% # Count the number of occurrences
+  mutate(
+    perc = round(proportions(n) * 100, 1), # Percentage
+    res = str_c(n, "(", perc, ")%"),
+    address = as.factor(address)
+  )
+
+ggplot(addressplot, aes(x = address , y = n, fill = address))  +
+  geom_col() +
+  geom_text(aes(label = res), colour = "black", vjust = -0.5) + 
+  theme(legend.position="none") +
+  labs(x="Address", y="Count")  # Labels for x,y axes
+```
+
+```{r}
+# Plot of the student's family size
+# LE3 - less or equal to 3 or GT3 - greater than 3
+famsizeplot <- df %>%
+  count(famsize) %>% # Count the number of occurrences
+  mutate(
+    perc = round(proportions(n) * 100, 1), # Percentage
+    res = str_c(n, "(", perc, ")%"),
+    famsize = as.factor(famsize)
+  )
+
+ggplot(famsizeplot, aes(x = famsize , y = n, fill = famsize))  +
+  geom_col() +
+  geom_text(aes(label = res), colour = "black", vjust = -0.5) + 
+  theme(legend.position="none") +
+  labs(x="Family Size", y="Count")  # Labels for x,y axes
+```
+
+```{r}
+# Plot of the student's parent's status
+#  T - living together or A - apart
+pstatusplot <- df %>%
+  count(Pstatus) %>% # Count the number of occurrences
+  mutate(
+    perc = round(proportions(n) * 100, 1), # Percentage
+    res = str_c(n, "(", perc, ")%"),
+    Pstatus = as.factor(Pstatus)
+  )
+
+ggplot(pstatusplot, aes(x = Pstatus , y = n, fill = Pstatus))  +
+  geom_col() +
+  geom_text(aes(label = res), colour = "black", vjust = -0.5) + 
+  theme(legend.position="none") +
+  labs(x="Parent's Cohabitation status", y="Count")  # Labels for x,y axes
+```
+
+```{r}
+# Plot of the student's mother's education
+meduplot <- df %>%
+  count(Medu) %>% # Count the number of occurrences
+  mutate(
+    perc = round(proportions(n) * 100, 1), # Percentage
+    res = str_c(n, "(", perc, ")%"),
+    Medu = as.factor(Medu)
+  )
+
+ggplot(meduplot, aes(x = Medu , y = n, fill = Medu))  +
+  geom_col() +
+  geom_text(aes(label = res), colour = "black", vjust = -0.5) + 
+  theme(legend.position="none") +
+  labs(x="Mother's Education", y="Count")  # Labels for x,y axes
+```
+
+```{r}
+# Plot of the student's father's education
+feduplot <- df %>%
+  count(Fedu) %>% # Count the number of occurrences
+  mutate(
+    perc = round(proportions(n) * 100, 1), # Percentage
+    res = str_c(n, "(", perc, ")%"),
+    Fedu = as.factor(Fedu)
+  )
+
+ggplot(feduplot, aes(x = Fedu , y = n, fill = Fedu))  +
+  geom_col() +
+  geom_text(aes(label = res), colour = "black", vjust = -0.5) + 
+   theme(legend.position="none") +
+  labs(x="Father's Education", y="Count")  # Labels for x,y axes
+```
+
+```{r}
+# Plot of the student's mother's job
+mjobplot <- df %>%
+  count(Mjob) %>% # Count the number of occurrences
+  mutate(
+    perc = round(proportions(n) * 100, 1), # Percentage
+    res = str_c(n, "(", perc, ")%"),
+    Mjob = as.factor(Mjob)
+  )
+
+ggplot(mjobplot, aes(x = reorder(Mjob, n), y = n, fill = Mjob, n))  +
+  geom_col() +
+  geom_text(aes(label = res), colour = "black", vjust = -0.5) + 
+  theme(legend.position="none") +
+  labs(x="Mother's Job", y="Count")  # Labels for x,y axes
+```
+
+```{r}
+# Plot of the student's father's job
+fjobplot <- df %>%
+  count(Fjob) %>% # Count the number of occurrences
+  mutate(
+    perc = round(proportions(n) * 100, 1), # Percentage
+    res = str_c(n, "(", perc, ")%"),
+    Fjob = as.factor(Fjob)
+  )
+
+ggplot(fjobplot, aes(x = reorder(Fjob, n), y = n, fill = Fjob, n))  +
+  geom_col() +
+  geom_text(aes(label = res), colour = "black", vjust = -0.5) + 
+  theme(legend.position="none") +
+  labs(x="Father's Job", y="Count")  # Labels for x,y axes
+```
+
+```{r}
+# Plot of reason to choose this school
+reasonplot <- df %>%
+  count(reason) %>% # Count the number of occurrences
+  mutate(
+    perc = round(proportions(n) * 100, 1), # Percentage
+    res = str_c(n, "(", perc, ")%"),
+    reason = as.factor(reason)
+  )
+
+ggplot(reasonplot, aes(x = reorder(reason, n), y = n, fill = reason, n))  +
+  geom_col() +
+  geom_text(aes(label = res), colour = "black", vjust = -0.5) + 
+  theme(legend.position="none") +
+  labs(x="Reason", y="Count")  # Labels for x,y axes
+```
+
+```{r}
+# Plot of student's guardian
+guardianplot <- df %>%
+  count(guardian) %>% # Count the number of occurrences
+  mutate(
+    perc = round(proportions(n) * 100, 1), # Percentage
+    res = str_c(n, "(", perc, ")%"),
+    guardian = as.factor(guardian)
+  )
+
+ggplot(guardianplot, aes(x = reorder(guardian, n), y = n, fill = guardian, n))  +
+  geom_col() +
+  geom_text(aes(label = res), colour = "black", vjust = -0.5) + 
+  theme(legend.position="none") +
+  labs(x="Guardian", y="Count")  # Labels for x,y axes
+```
+
+```{r}
+# Plot of student's traveltime
+# 1 - <15 min., 2 - 15 to 30 min., 3 - 30 min. to 1 hour, or 4 - >1 hour)
+traveltimeplot <- df %>%
+  count(traveltime) %>% # Count the number of occurrences
+  mutate(
+    perc = round(proportions(n) * 100, 1), # Percentage
+    res = str_c(n, "(", perc, ")%"),
+    traveltime = as.factor(traveltime)
+  )
+
+  ggplot(traveltimeplot, aes(x = traveltime , y = n, fill = traveltime))  +
+  geom_col() +
+  geom_text(aes(label = res), colour = "black", vjust = -0.5) + 
+  theme(legend.position="none") +
+  labs(x="Travel Time", y="Count")  # Labels for x,y axes
+```
+
+```{r}
+# Plot of student's study time
+# 1 - <2 hours, 2 - 2 to 5 hours, 3 - 5 to 10 hours, or 4 - >10 hours
+studytimeplot <- df %>%
+  count(studytime) %>% # Count the number of occurrences
+  mutate(
+    perc = round(proportions(n) * 100, 1), # Percentage
+    res = str_c(n, "(", perc, ")%"),
+    studytime = as.factor(studytime)
+  )
+
+ggplot(studytimeplot, aes(x = studytime , y = n, fill = studytime))  +
+  geom_col() +
+  geom_text(aes(label = res), colour = "black", vjust = -0.5) + 
+  theme(legend.position="none") +
+  labs(x="Study Time", y="Count")  # Labels for x,y axes
+```
+
+```{r}
+# Plot of student's failures
+#  if 1<=n<3, else 4
+failuresplot <- df %>%
+  count(failures) %>% # Count the number of occurrences
+  mutate(
+    perc = round(proportions(n) * 100, 1), # Percentage
+    res = str_c(n, "(", perc, ")%"),
+    failures = as.factor(failures)
+  )
+
+ggplot(failuresplot, aes(x = failures , y = n, fill = failures))  +
+  geom_col() +
+  geom_text(aes(label = res), colour = "black", vjust = -0.5) + 
+  theme(legend.position="none") +
+  labs(x="Failures", y="Count")  # Labels for x,y axes
+```
+
+```{r}
+# Plot of student's extra educational support
+schoolsupplot <- df %>%
+  count(schoolsup) %>% # Count the number of occurrences
+  mutate(
+    perc = round(proportions(n) * 100, 1), # Percentage
+    res = str_c(n, "(", perc, ")%"),
+    schoolsup = as.factor(schoolsup)
+  )
+
+ggplot(schoolsupplot, aes(x = schoolsup , y = n, fill = schoolsup))  +
+  geom_col() +
+  geom_text(aes(label = res), colour = "black", vjust = -0.5) + 
+  theme(legend.position="none") +
+  labs(x="Educational Support", y="Count")  # Labels for x,y axes
+```
+
+```{r}
+# Plot of student's family educational support
+familysupplot <- df %>%
+  count(famsup) %>% # Count the number of occurrences
+  mutate(
+    perc = round(proportions(n) * 100, 1), # Percentage
+    res = str_c(n, "(", perc, ")%"),
+    famsup = as.factor(famsup)
+  )
+
+ggplot(familysupplot, aes(x = famsup , y = n, fill = famsup))  +
+  geom_col() +
+  geom_text(aes(label = res), colour = "black", vjust = -0.5) + 
+  theme(legend.position="none") +
+  labs(x="Family Educational Support", y="Count")  # Labels for x,y axes
+```
+
+```{r}
+# Plot of student's extra paid classes 
+paidplot <- df %>%
+  count(paid) %>% # Count the number of occurrences
+  mutate(
+    perc = round(proportions(n) * 100, 1), # Percentage
+    res = str_c(n, "(", perc, ")%"),
+    paid = as.factor(paid)
+  )
+
+ggplot(paidplot, aes(x = paid , y = n, fill = paid))  +
+  geom_col() +
+  geom_text(aes(label = res), colour = "black", vjust = -0.5) + 
+  theme(legend.position="none") +
+  labs(x="Paid Classes", y="Count")  # Labels for x,y axes
+```
+
+```{r}
+# Plot of student's activities 
+activitiesplot <- df %>%
+  count(activities) %>% # Count the number of occurrences
+  mutate(
+    perc = round(proportions(n) * 100, 1), # Percentage
+    res = str_c(n, "(", perc, ")%"),
+    activities = as.factor(activities)
+  )
+
+ggplot(activitiesplot, aes(x = activities , y = n, fill = activities))  +
+  geom_col() +
+  geom_text(aes(label = res), colour = "black", vjust = -0.5) + 
+  theme(legend.position="none") +
+  labs(x="Activities", y="Count")  # Labels for x,y axes
+```
+
+```{r}
+# Plot of student's attendance in nursery school 
+nurseryplot <- df %>%
+  count(nursery) %>% # Count the number of occurrences
+  mutate(
+    perc = round(proportions(n) * 100, 1), # Percentage
+    res = str_c(n, "(", perc, ")%"),
+    nursery = as.factor(nursery)
+  )
+
+ggplot(nurseryplot, aes(x = nursery , y = n, fill = nursery))  +
+  geom_col() +
+  geom_text(aes(label = res), colour = "black", vjust = -0.5) + 
+  theme(legend.position="none") +
+  labs(x="Attend Nursery School", y="Count")  # Labels for x,y axes
+```
+
+```{r}
+# Plot of student's - higher education
+higherplot <- df %>%
+  count(higher) %>% # Count the number of occurrences
+  mutate(
+    perc = round(proportions(n) * 100, 1), # Percentage
+    res = str_c(n, "(", perc, ")%"),
+    higher = as.factor(higher)
+  )
+
+ggplot(higherplot, aes(x = higher , y = n, fill = higher))  +
+  geom_col() +
+  geom_text(aes(label = res), colour = "black", vjust = -0.5) + 
+  theme(legend.position="none") +
+  labs(x="Higher Education", y="Count")  # Labels for x,y axes
+```
+
+```{r}
+# Plot of student's internet access at home 
+internetplot <- df %>%
+  count(internet) %>% # Count the number of occurrences
+  mutate(
+    perc = round(proportions(n) * 100, 1), # Percentage
+    res = str_c(n, "(", perc, ")%"),
+    internet = as.factor(internet)
+  )
+
+ggplot(internetplot, aes(x = internet , y = n, fill = internet))  +
+  geom_col() +
+  geom_text(aes(label = res), colour = "black", vjust = -0.5) + 
+  theme(legend.position="none") +
+  labs(x="Internet Access", y="Count")  # Labels for x,y axes
+```
+
+```{r}
+# Plot of student's romantic relationship
+relantionshipplot <- df %>%
+  count(romantic) %>% # Count the number of occurrences
+  mutate(
+    perc = round(proportions(n) * 100, 1), # Percentage
+    res = str_c(n, "(", perc, ")%"),
+    romantic = as.factor(romantic)
+  )
+
+ggplot(relantionshipplot, aes(x = romantic , y = n, fill = romantic))  +
+  geom_col() +
+  geom_text(aes(label = res), colour = "black", vjust = -0.5) + 
+  theme(legend.position="none") +
+  labs(x="Romantic Relantionship", y="Count")  # Labels for x,y axes
+```
+
+```{r}
+# Plot of student's quality of family relationship
+# 1 - very bad to 5 - excellent
+famrelplot <- df %>%
+  count(famrel) %>% # Count the number of occurrences
+  mutate(
+    perc = round(proportions(n) * 100, 1), # Percentage
+    res = str_c(n, "(", perc, ")%"),
+    famrel = as.factor(famrel)
+  )
+
+ggplot(famrelplot, aes(x = famrel , y = n, fill = famrel))  +
+  geom_col() +
+  geom_text(aes(label = res), colour = "black", vjust = -0.5) + 
+  theme(legend.position="none") +
+  labs(x="Quality of Family Relantionship", y="Count")  # Labels for x,y axes
+```
+
+```{r}
+# Plot of student's free time
+# 1 - very low to 5 - very high
+freetimeplot <- df %>%
+  count(freetime) %>% # Count the number of occurrences
+  mutate(
+    perc = round(proportions(n) * 100, 1), # Percentage
+    res = str_c(n, "(", perc, ")%"),
+    freetime = as.factor(freetime)
+  )
+
+ggplot(freetimeplot, aes(x = freetime , y = n, fill = freetime))  +
+  geom_col() +
+  geom_text(aes(label = res), colour = "black", vjust = -0.5) + 
+  theme(legend.position="none") +
+  labs(x="Free Time", y="Count")  # Labels for x,y axes
+```
+
+```{r}
+# Plot of student's going out with friends
+# 1 - very low to 5 - very high
+gooutplot <- df %>%
+  count(goout) %>% # Count the number of occurrences
+  mutate(
+    perc = round(proportions(n) * 100, 1), # Percentage
+    res = str_c(n, "(", perc, ")%"),
+    goout = as.factor(goout)
+  )
+
+ggplot(gooutplot, aes(x = goout , y = n, fill = goout))  +
+  geom_col() +
+  geom_text(aes(label = res), colour = "black", vjust = -0.5) + 
+  theme(legend.position="none") +
+  labs(x="Going Out", y="Count")  # Labels for x,y axes
+```
+
+```{r}
+# Plot of student's workday alcohol consumption 
+# 1 - very low to 5 - very high
+dalcplot <- df %>%
+  count(Dalc) %>% # Count the number of occurrences
+  mutate(
+    perc = round(proportions(n) * 100, 1), # Percentage
+    res = str_c(n, "(", perc, ")%"),
+    Dalc = as.factor(Dalc)
+  )
+
+ggplot(dalcplot, aes(x = Dalc , y = n, fill = Dalc))  +
+  geom_col() +
+  geom_text(aes(label = res), colour = "black", vjust = -0.5) + 
+  theme(legend.position="none") +
+  labs(x="Workday Alcohol Consumption", y="Count")  # Labels for x,y axes
+```
+
+```{r}
+# Plot of student's weekend alcohol consumption 
+walcplot <- df %>%
+  count(Walc) %>% # Count the number of occurrences
+  mutate(
+    perc = round(proportions(n) * 100, 1), # Percentage
+    res = str_c(n, "(", perc, ")%"),
+    Walc = as.factor(Walc)
+  )
+
+ggplot(walcplot, aes(x = Walc , y = n, fill = Walc))  +
+  geom_col() +
+  geom_text(aes(label = res), colour = "black", vjust = -0.5) + 
+  theme(legend.position="none") +
+  labs(x="Weekend Alcohol Consumption", y="Count")  # Labels for x,y axes
+```
+
+```{r}
+# Plot of student's current health
+# 1 - very bad to 5 - very good
+healthplot <- df %>%
+  count(health) %>% # Count the number of occurrences
+  mutate(
+    perc = round(proportions(n) * 100, 1), # Percentage
+    res = str_c(n, "(", perc, ")%"),
+    health = as.factor(health)
+  )
+
+ggplot(healthplot, aes(x = health , y = n, fill = health))  +
+  geom_col() +
+  geom_text(aes(label = res), colour = "black", vjust = -0.5) + 
+  theme(legend.position="none") +
+  labs(x="Health Status", y="Count")  # Labels for x,y axes
+```
+
+```{r}
+# Plot of student's number of school absences
+summary(df$absences)
+
+p1<-ggplot(df,aes(absences))+geom_histogram(fill="#c19ce3", color='black', bins=30) 
+p2<-ggplot(df,aes(absences))+geom_boxplot(fill="#c19ce3")
+grid.arrange(p1,p2)
+```
+
+```{r}
+# Plot of student's first period grade
+summary(df$G1)
+
+p3<-ggplot(df,aes(G1))+geom_histogram(fill="#e2ec39", color='black', bins=30) 
+p4<-ggplot(df,aes(G1))+geom_boxplot(fill="#e2ec39")
+grid.arrange(p3,p4)
+```
+
+```{r}
+# Plot of student's second period grade
+summary(df$G2)
+
+p5<-ggplot(df,aes(G2))+geom_histogram(fill="#81a2f9", color='black', bins=30) 
+p6<-ggplot(df,aes(G2))+geom_boxplot(fill="#81a2f9")
+grid.arrange(p5,p6)
+```
+
+```{r}
+# Plot of student's final grade
+summary(df$G3)
+var(df$G3)
+
+p7<-ggplot(df,aes(G3))+geom_histogram(fill="#92ebd6", color='black', bins=30) 
+p8<-ggplot(df,aes(G3))+geom_boxplot(fill="#92ebd6")
+grid.arrange(p7,p8)
+```
+
+# Check how other variables affects the target variable G3
+```{r}
+# Plot of the final grade by school
+ggplot(df, mapping = aes(x = school, y = G3, fill = school)) + 
+  geom_boxplot(outlier.colour="black") +
+  labs(title="Final Grade by School")
+```
+
+```{r}
+# Plot of the final grade by gender
+ggplot(df, mapping = aes(x = sex, y = G3, fill = sex)) + 
+  geom_boxplot(outlier.colour="black") +
+  labs(title="Final Grade by Gender")
+```
+
+```{r}
+# Plot of the final grade by address
+ggplot(df, mapping = aes(x = address, y = G3, fill = address)) + 
+  geom_boxplot(outlier.colour="black") +
+  labs(title="Final Grade by Address")
+```
+
+```{r}
+# Plot of the final grade by family size
+ggplot(df, mapping = aes(x = famsize, y = G3, fill = famsize)) + 
+  geom_boxplot(outlier.colour="black") +
+  labs(title="Final Grade by Family Size")
+```
+
+```{r}
+# Plot of the final grade by parent's status
+ggplot(df, mapping = aes(x = Pstatus, y = G3, fill = Pstatus)) + 
+  geom_boxplot(outlier.colour="black") +
+  labs(title="Final Grade by Parent's Status")
+```
+
+```{r}
+# Plot of the final grade by mother's education
+ggplot(df, mapping = aes(x = Medu, y = G3, fill = as.character(Medu))) + 
+  geom_boxplot(outlier.colour="black") +
+  labs(title="Final Grade by Mother's Education", fill='Medu')
+```
+
+
+```{r}
+# Plot of the final grade by father's education
+ggplot(df, mapping = aes(x = Fedu, y = G3, fill = as.character(Fedu))) + 
+  geom_boxplot(outlier.colour="black") +
+  labs(title="Final Grade by Father's Education", fill='Fedu')
+```
+
+```{r}
+# Plot of the final grade by mother's job
+ggplot(df, mapping = aes(x = Mjob, y = G3, fill = as.character(Mjob))) + 
+  geom_boxplot(outlier.colour="black") +
+  labs(title="Final Grade by Mother's Job", fill='Mjob')
+```
+
+```{r}
+# Plot of the final grade by father's job
+ggplot(df, mapping = aes(x = Fjob, y = G3, fill = as.character(Fjob))) + 
+  geom_boxplot(outlier.colour="black") +
+  labs(title="Final Grade by Father's Job", fill='Fjob')
+```
+
+```{r}
+# Plot of the final grade by reason to chose this school
+ggplot(df, mapping = aes(x = reason, y = G3, fill = reason)) + 
+  geom_boxplot(outlier.colour="black") +
+  labs(title="Final Grade by Reason")
+```
+
+```{r}
+# Plot of the final grade by guardian
+ggplot(df, mapping = aes(x = guardian, y = G3, fill = guardian)) + 
+  geom_boxplot(outlier.colour="black") +
+  labs(title="Final Grade by Guardian")
+```
+
+```{r}
+# Plot of the final grade by travel time
+ggplot(df, mapping = aes(x = traveltime, y = G3, fill = as.character(traveltime))) + 
+  geom_boxplot(outlier.colour="black") +
+  labs(title="Final Grade by Travel Time", fill='Travel Time')
+```
+
+```{r}
+# Plot of the final grade by study time
+ggplot(df, mapping = aes(x = studytime, y = G3, fill = as.character(studytime))) + 
+  geom_boxplot(outlier.colour="black") +
+  labs(title="Final Grade by Study Time", fill='Study Time')
+```
+
+```{r}
+# Plot of the final grade by failures
+ggplot(df, mapping = aes(x = failures, y = G3, fill = as.character(failures))) + 
+  geom_boxplot(outlier.colour="black") +
+  labs(title="Final Grade by Failures", fill='Failures')
+```
+
+```{r}
+# Plot of the final grade by school support
+ggplot(df, mapping = aes(x = schoolsup, y = G3, fill = schoolsup)) + 
+  geom_boxplot(outlier.colour="black") +
+  labs(title="Final Grade by School Support")
+```
+
+```{r}
+# Plot of the final grade by family educational support
+ggplot(df, mapping = aes(x = famsup, y = G3, fill = famsup)) + 
+  geom_boxplot(outlier.colour="black") +
+  labs(title="Final Grade by Family Educational Support")
+```
+
+```{r}
+# Plot of the final grade by paid classes
+ggplot(df, mapping = aes(x = paid, y = G3, fill = paid)) + 
+  geom_boxplot(outlier.colour="black") +
+  labs(title="Final Grade by Paid Classes")
+```
+
+```{r}
+# Plot of the final grade by activities
+ggplot(df, mapping = aes(x = activities, y = G3, fill = activities)) + 
+  geom_boxplot(outlier.colour="black") +
+  labs(title="Final Grade by Activities")
+```
+
+```{r}
+# Plot of the final grade by attendance in nursery school
+ggplot(df, mapping = aes(x = nursery, y = G3, fill = nursery)) + 
+  geom_boxplot(outlier.colour="black") +
+  labs(title="Final Grade by Nursery School")
+```
+
+```{r}
+# Plot of the final grade by higher education
+ggplot(df, mapping = aes(x = higher, y = G3, fill = higher)) + 
+  geom_boxplot(outlier.colour="black") +
+  labs(title="Final Grade by Higher Education")
+
+# students who are planning on a higher education perform better than those who do not
+```
+
+```{r}
+# Plot of the final grade by internet access
+ggplot(df, mapping = aes(x = internet, y = G3, fill = internet)) + 
+  geom_boxplot(outlier.colour="black") +
+  labs(title="Final Grade by Internet Access")
+```
+
+```{r}
+# Plot of the final grade by romantic relationship
+ggplot(df, mapping = aes(x = romantic, y = G3, fill = romantic)) + 
+  geom_boxplot(outlier.colour="black") +
+  labs(title="Final Grade by Romantic Relantionship")
+```
+
+```{r}
+# Plot of the final grade by quality of family relantionship
+ggplot(df, mapping = aes(x = famrel, y = G3, fill = as.character(famrel))) + 
+  geom_boxplot(outlier.colour="black") +
+  labs(title="Final Grade by Quality of Family Relationship", fill='FamRel')
+```
+
+```{r}
+# Plot of the final grade by free time
+ggplot(df, mapping = aes(x = freetime, y = G3, fill = as.character(freetime))) + 
+  geom_boxplot(outlier.colour="black") +
+  labs(title="Final Grade by Free Time", fill='Free Time')
+```
+
+```{r}
+# Plot of the final grade by going out with friends
+ggplot(df, mapping = aes(x = goout, y = G3, fill = as.character(goout))) + 
+  geom_boxplot(outlier.colour="black") +
+  labs(title="Final Grade by Going out", fill='Goout')
+```
+
+```{r}
+# Plot of the final grade by workday alcohol consumption 
+ggplot(df, mapping = aes(x = Dalc, y = G3, fill = as.character(Dalc))) + 
+  geom_boxplot(outlier.colour="black") +
+  labs(title="Final Grade by workday alcohol consumption ", fill='Dalc')
+```
+
+```{r}
+# Plot of the final grade by weekend alcohol consumption
+ggplot(df, mapping = aes(x = Walc, y = G3, fill = as.character(Walc))) + 
+  geom_boxplot(outlier.colour="black") +
+  labs(title="Final Grade by weekend alcohol consumption ", fill='Walc')
+```
+
+```{r}
+# Plot of the final grade by health status
+ggplot(df, mapping = aes(x = health, y = G3, fill = as.character(health))) + 
+  geom_boxplot(outlier.colour="black") +
+  labs(title="Final Grade by Health Status", fill='health')
+```
+
+```{r}
+# Plot of the final grade by absences
+ggplot(df,aes(x=absences,y=G3)) + geom_point()
+```
+
+```{r}
+# Plot of G3 vs G1,G2
+p9<-ggplot(df,aes(x=G1,y=G3)) + geom_point() + geom_smooth(method = 'lm')
+p10<-ggplot(df,aes(x=G2,y=G3)) + geom_point() + geom_smooth(method = 'lm')
+grid.arrange(p9,p10)
+```
+
+# Ordinal Encoding
+```{r}
+# Encoding of the variables
+encode_ordinal <- function(x, order = unique(x)) {
+  x <- as.numeric(factor(x, levels = order, exclude = NULL))
+  x
+}
+
+df_encoded <- df
+df_encoded$school <- encode_ordinal(df$school)
+df_encoded$sex <- encode_ordinal(df$sex)
+df_encoded$address <- encode_ordinal(df$address)
+df_encoded$famsize <- encode_ordinal(df$famsize)
+df_encoded$Pstatus <- encode_ordinal(df$Pstatus)
+df_encoded$Mjob <- encode_ordinal(df$Mjob)
+df_encoded$Fjob <- encode_ordinal(df$Fjob)
+df_encoded$reason <- encode_ordinal(df$reason)
+df_encoded$guardian <- encode_ordinal(df$guardian)
+df_encoded$schoolsup <- encode_ordinal(df$schoolsup)
+df_encoded$famsup <- encode_ordinal(df$famsup)
+df_encoded$paid <- encode_ordinal(df$paid)
+df_encoded$activities <- encode_ordinal(df$activities)
+df_encoded$nursery <- encode_ordinal(df$nursery)
+df_encoded$higher <- encode_ordinal(df$higher)
+df_encoded$internet <- encode_ordinal(df$internet)
+df_encoded$romantic <- encode_ordinal(df$romantic)
+```
+
+# Correlation Matrix
+```{r}
+# Correlation among variables
+corrplot(cor(df_encoded), tl.cex=0.5)
+```
+
+# Impact of parents on the performance of students
+```{r}
+df %>% group_by(Medu) %>% summarize('g1'=mean(G1),'g2'=mean(G2),'g3'=mean(G3),n=n())
+df %>% group_by(Fedu) %>% summarize('g1'=mean(G1),'g2'=mean(G2),'g3'=mean(G3),n=n()) 
+```
+
+```{r}
+df %>% group_by(Mjob) %>% summarize('g1'=mean(G1),'g2'=mean(G2),'g3'=mean(G3),n=n()) %>% 
+  ggplot(aes(x=Mjob))+geom_line(aes(y=g1),color='blue',group=1,lwd=2)+
+  geom_line(aes(y=g2),color='green',group=1,lwd=2)+geom_line(aes(y=g3),color='red',group=1,lwd=2)+
+  labs(title="Was mother's job helpful?",y='Performance',subtitle='G1:blue, G2:green, G3:red')+
+  theme(text=element_text(size=20)) 
+```
+
+```{r}
+df %>% group_by(Fjob) %>% summarize('g1'=mean(G1),'g2'=mean(G2),'g3'=mean(G3),n=n()) %>% 
+  ggplot(aes(x=Fjob))+geom_line(aes(y=g1),color='blue',group=1,lwd=2)+
+  geom_line(aes(y=g2),color='green',group=1,lwd=2)+geom_line(aes(y=g3),color='red',group=1,lwd=2)+
+  labs(title="Was father's job helpful?",y='Performance',subtitle='G1:blue, G2:green, G3:red')+
+  theme(text=element_text(size=20))
+```
+
+```{r}
+df %>% group_by(Medu) %>% summarize('g1'=mean(G1),'g2'=mean(G2),'g3'=mean(G3),n=n()) %>% 
+  ggplot(aes(x=Medu))+geom_line(aes(y=g1),color='blue',group=1,lwd=2)+
+  geom_line(aes(y=g2),color='green',group=1,lwd=2)+geom_line(aes(y=g3),color='red',group=1,lwd=2)+
+  labs(title="Was mother's education helpful?",y='Performance',subtitle='G1:blue, G2:green, G3:red')+
+  theme(text=element_text(size=20)) 
+
+```
+
+
+```{r}
+df %>% group_by(Fedu) %>% summarize('g1'=mean(G1),'g2'=mean(G2),'g3'=mean(G3),n=n()) %>% 
+  ggplot(aes(x=Fedu))+geom_line(aes(y=g1),color='blue',group=1,lwd=2)+
+  geom_line(aes(y=g2),color='green',group=1,lwd=2)+geom_line(aes(y=g3),color='red',group=1,lwd=2)+
+  labs(title="Was father's education helpful?",y='Performance',subtitle='G1:blue, G2:green, G3:red')+
+  theme(text=element_text(size=20))
+
+```
+# Combine Female and Male columns
+```{r}
+df$MplusFJob <- paste(df$Mjob, "+", df$Fjob)
+df$MplusFedu <- paste(df$Medu + df$Fedu)
+```
+
+```{r}
+df %>% group_by(MplusFedu) %>% summarize('g1'=mean(G1),'g2'=mean(G2),'g3'=mean(G3),n=n())
+```
+
+```{r}
+df %>% group_by(MplusFJob) %>% summarize('g1'=mean(G1),'g2'=mean(G2),'g3'=mean(G3),n=n()) %>% 
+  ggplot(aes(x=MplusFJob))+geom_line(aes(y=g1),color='blue',group=1,lwd=2)+
+  geom_line(aes(y=g2),color='green',group=1,lwd=2)+geom_line(aes(y=g3),color='red',group=1,lwd=2)+
+  labs(title="Was mother's education helpful?",y='Performance',subtitle='G1:blue, G2:green, G3:red')+
+  theme(text=element_text(size=5), axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) 
+```
+
+```{r}
+df %>% group_by(MplusFedu) %>% summarize('g1'=mean(G1),'g2'=mean(G2),'g3'=mean(G3),n=n()) %>% 
+  ggplot(aes(x=MplusFedu))+geom_line(aes(y=g1),color='blue',group=1,lwd=2)+
+  geom_line(aes(y=g2),color='green',group=1,lwd=2)+geom_line(aes(y=g3),color='red',group=1,lwd=2)+
+  labs(title="Was mother's education helpful?",y='Performance',subtitle='G1:blue, G2:green, G3:red')+
+  theme(text=element_text(size=20)) 
+```
+
+# Evidence from correlation matrix
+```{r}
+# Address and travel time seem to be moderately correlated
+# However, these variables are categorical, so it is better to check the relationship between them through Chi-squared test
+df_chisq <- PivotTable$new()
+df_chisq$addData(df)
+df_chisq$addColumnDataGroups("address")
+df_chisq$addRowDataGroups("traveltime")
+df_chisq$defineCalculation(calculationName="count", summariseExpression="n()")
+df_chisq$evaluatePivot()
+df_chisq <- df_chisq$asDataFrame()
+df_chisq <- df_chisq[, !names(df_chisq) %in% c("Total")]
+df_chisq <- head(df_chisq, -1)
+df_chisq
+```
+
+```{r}
+chisq <- chisq.test(df_chisq)
+chisq
+```
+
+Since there was a warning of Chi-squared approximation to potentially be incorrect, some sizes of counts are too small, and so the Fisher's exact test will be used for more accurate results
+
+```{r}
+fisher <- fisher.test(df_chisq)
+fisher
+```
+
+H0: There is no dependency between type of area (rural/urban) and time it takes to go to school. Since the p-value is lower than 0.05, there is enough evidence to reject the null hypothesis at 95% confidence level. Therefore, there is a relationship between address and travel time, and thus these variables might be collinear.
+
+Both variables represent quite similar concept of time that it takes to go to school. Seems logical to leave only one of these variables in the model
+
+```{r}
+# `Failures` and `higher` variables time seem to be moderately correlated as well
+# However, these variables are also categorical, so it is a more accurate approach to check the relationship between them with Chi-squared test
+df_chisq <- PivotTable$new()
+df_chisq$addData(df)
+df_chisq$addColumnDataGroups("higher")
+df_chisq$addRowDataGroups("failures")
+df_chisq$defineCalculation(calculationName="count", summariseExpression="n()")
+df_chisq$evaluatePivot()
+df_chisq <- df_chisq$asDataFrame()
+df_chisq <- df_chisq[, !names(df_chisq) %in% c("Total")]
+df_chisq <- head(df_chisq, -1)
+df_chisq
+```
+
+```{r}
+chisq <- chisq.test(df_chisq)
+chisq
+```
+
+Since there was a warning of Chi-squared approximation to potentially be incorrect, some sizes of counts are too small, and so the Fisher's exact test will be used for more accurate results
+
+```{r}
+fisher <- fisher.test(df_chisq)
+fisher
+```
+
+H0: There is no dependency between willingness to take higher education and failures of classes. Since the p-value is lower than 0.05, there is enough evidence to reject the null hypothesis at 95% confidence level. Therefore, there is a relationship between higher and failures variables, and thus these variables might be collinear.
+
+The majority of students want to take higher education and never failed a class, so, in fact, running a test was not a necessity here. Most probably, both of these variables will not provide much information, and so both could be dropped
+
+```{r}
+# Workday and weekend alcohol consumption could be combined into a single predictor
+# It will still represent how much alcohol students consume but will remove unnecessary collinearity
+df$alc <- df$Walc+df$Dalc
+```
+
+```{r}
+# Alcohol consumption level variables were correlated with going out – let's check this relationship with chi-squared test
+# However, these variables are also categorical, so it is a more accurate approach to check the relationship between them with Chi-squared test
+df_chisq <- PivotTable$new()
+df_chisq$addData(df)
+df_chisq$addColumnDataGroups("goout")
+df_chisq$addRowDataGroups("alc")
+df_chisq$defineCalculation(calculationName="count", summariseExpression="n()")
+df_chisq$evaluatePivot()
+df_chisq <- df_chisq$asDataFrame()
+df_chisq <- df_chisq[, !names(df_chisq) %in% c("Total")]
+df_chisq <- head(df_chisq, -1)
+df_chisq[is.na(df_chisq)] <- 0
+df_chisq
+```
+
+```{r}
+chisq <- chisq.test(df_chisq)
+chisq
+```
+Since there was a warning of Chi-squared approximation to potentially be incorrect, some sizes of counts are too small, and so the Fisher's exact test will be used for more accurate results
+
+```{r}
+fisher <- fisher.test(df_chisq, simulate.p.value = TRUE) # simulate p-value due to very low frequencies in certain classes
+fisher
+```
+
+H0: There is no dependency between level of alcohol consumption and frequency of going out with friends. Since the p-value is lower than 0.05, there is enough evidence to reject the null hypothesis at 95% confidence level. Therefore, there is a relationship between goout and alc variables, and thus these variables might be collinear.
+
+It is quite clear that the more frequently students hang out with friends, the more alcohol they consume. Since going out is a bit broader concept, which also involves other activities than drinking alcohol, we can drop alcohol consumption variable to reduce potential collinearity
+
+# Evidence from plots
+Mother's and father's jobs are in majority represented by 'other' class
+It does not provide much evidence in terms of explaining which exact parents' job could force students to study harder
+However, one can assume that:
+
+If one of the parents works in a healthcare, then they spent more years when getting their education, so they can positively influence child's attitude to studying
+If one of the parents works as a teacher, then they better know how to motivate their child to study harder, explain some material in a more detail, and so the grades will be better
+
+```{r}
+df$parent_health_teacher = ifelse((df$Fjob=="teacher")|(df$Mjob=="teacher")|(df$Mjob=="health")|(df$Fjob=="health"), 1, 0)
+```
+
+```{r}
+# Plot of the new variable
+p_hplot <- df %>%
+  count(parent_health_teacher) %>% # Count the number of occurrences
+  mutate(
+    perc = round(proportions(n) * 100, 1), # Percentage
+    res = str_c(n, "(", perc, ")%"),
+    parent_health_teacher = as.factor(parent_health_teacher)
+  )
+
+ggplot(p_hplot, aes(x = reorder(parent_health_teacher, n), y = n, fill = parent_health_teacher, n))  +
+  geom_col() +
+  geom_text(aes(label = res), colour = "black", vjust = -0.5) + 
+  theme(legend.position="none") +
+  labs(x="One of parent's job is healthcare or teaching", y="Count")  # Labels for x,y axes
+```
+
+
+# Possible Interactions
+Interactions with sex variable could be one of the best in terms of explanation of why this interaction may occur naturally. Therefore, in this section we will check if some gender-based interaction terms could be used for our model
+
+Sex and study time – to determine if the relationship between study time and grades differ among genders. We are interested in checking if at certain level of spent time on studying one of genders could outperform the other in terms of final score
+
+```{r}
+ggplot(df, aes(G3)) +
+  geom_histogram(binwidth = 1.5) +
+  facet_wrap(
+    ~ df$studytime + df$sex,
+    nrow=2,
+    ncol=4,
+    scale="free"
+  ) +
+  scale_x_continuous(
+    limits=c(1, 20)
+  ) +
+  theme_light() +
+  theme(plot.title=element_text(hjust = 0.5)) +
+  xlab("Final score (0-20)") +
+  ylab("Frequency") +
+  ggtitle("Final Score Grouped by Weekly Study Time and Genders")
+```
+Distributions do not differ much for the classes 1-2 of study time. As for study time 3-4, there are too few male students within these groups, and the difference is still not that considerable
+
+Next interaction to test is the sex and romantic one. While being in relationship, boys and girls may show varying attitude towards studying, so it may be possible that there could be a difference in finals score
+
+```{r}
+ggplot(df, aes(G3)) +
+  geom_bar() +
+  facet_wrap(
+    ~ df$romantic + df$sex,
+    nrow=2,
+    ncol=2,
+    scale="free"
+  ) +
+  scale_x_continuous(
+    limits=c(1, 20)
+  ) +
+  theme_light() +
+  theme(plot.title=element_text(hjust = 0.5)) +
+  xlab("In a romantic relationship: yes/no") +
+  ylab("Frequency") +
+  ggtitle("Final Score Grouped by Being in Relationship and Genders")
+```
+Further test of possible interaction is devoted to sex and absences variables. We would like to investigate if there is a case when for representatives of one gender the number of absences has different relationship with the final grade than for another
+
+In order to test this assumption, we will make a scatter plot of absences and sex, fit the linear model to visualize relationship. For a more accurate and representative plotting, there was used an approach of Poisson regression. Therefore, we would like to plot  𝑙𝑜𝑔(𝜆𝑖)  of G3 by number of absences.  𝜆𝑖  is unknown, so we approximate it by taking average value of final score at every value of number of absences and respective gender
+
+```{r}
+df_plot = df %>% group_by(absences, sex) %>% summarize("G3"=log(mean(G3)))
+ggplot(
+  data=df_plot,
+  aes(
+    x=absences,
+    y=G3,
+    color=sex
+  )
+) +
+  geom_point() +
+  geom_smooth(
+    method="lm",
+    formula=y ~ x,
+    se=FALSE
+  ) +
+  xlab("Number of school absences") +
+  ylab("Log empirical mean of final grade at number of absences")
+```
+For male students there is quite considerable negative linear relationship between number of school absences and final score. However, it is not that obvious for girls, which means that girls can actually achieve quite high score even at higher number of absences. This might be caused by the fact that girls may skip classes for a good reason, while boys tend to intentionally do it. Therefore, it could be useful to add an interaction  𝑠𝑒𝑥×𝑎𝑏𝑠𝑒𝑛𝑐𝑒𝑠  to the model
+
+```{r}
+colnames(df)
+```
+
+```{r}
+encode_ordinal <- function(x, order = unique(x)) {
+  x <- as.numeric(factor(x, levels = order, exclude = NULL))
+  x
+}
+
+df$school <- encode_ordinal(df$school)
+df$sex <- encode_ordinal(df$sex)
+df$famsize <- encode_ordinal(df$famsize)
+df$Pstatus <- encode_ordinal(df$Pstatus)
+df$reason <- encode_ordinal(df$reason)
+df$guardian <- encode_ordinal(df$guardian)
+df$schoolsup <- encode_ordinal(df$schoolsup)
+df$famsup <- encode_ordinal(df$famsup)
+df$paid <- encode_ordinal(df$paid)
+df$activities <- encode_ordinal(df$activities)
+df$nursery <- encode_ordinal(df$nursery)
+df$internet <- encode_ordinal(df$internet)
+df$romantic <- encode_ordinal(df$romantic)
+df$goout <- encode_ordinal(df$goout)
+df$MplusFedu <- encode_ordinal(df$MplusFedu)
+df$famrel <- encode_ordinal(df$famrel)
+df$health <- encode_ordinal(df$health)
+```

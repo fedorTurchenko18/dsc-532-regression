@@ -1,0 +1,765 @@
+---
+title: "DSC532-Regression-Models"
+author: "Leonidas Ioannou, Ioustina Harasim, Fedor Turchenko"
+output: html_document
+date: "2023-04-23"
+---
+
+```{r, message=FALSE}
+library(dplyr)
+library(leaps)
+library(ggplot2)
+library(tidyverse)
+library(bestglm)
+library(glmnet)
+library(fastDummies)
+library(caret)
+library(MASS)
+```
+
+```{r}
+# Read the data
+df <- read.csv("train_processed_encoded.csv", header = TRUE)
+```
+
+```{r}
+impute_df <- df %>% group_by(sex, age) %>% summarize("G3"=median(G3))
+df$G3 <- ifelse(df$G3 == 0,
+                   impute_df$G3[match(df$age, df$sex, impute_df$G3)],
+                   df$G3)
+```
+
+```{r}
+summary(df$G3)
+```
+
+```{r}
+head(df)
+```
+
+```{r}
+# Split the data into training and testing sets (80/20 split)
+set.seed(123) # set seed for reproducibility
+index <- createDataPartition(df$G3, p = 0.8, list = FALSE)
+train <- df[index, ]
+test <- df[-index, ]
+```
+
+
+**Linear Regression**
+```{r}
+# Fit a linear regression model on the whole dataset
+lm.full <- lm(G3 ~ . + sex:absences, data = df)
+# Print summary of the model results
+summary(lm.full)
+```
+
+
+**Checking the model assumptions**
+
+```{r}
+# Plots of residuals
+par(mfrow=c(1,3))
+residuals.sat=lm.full$residuals 
+qqnorm(residuals.sat)
+qqline(residuals.sat) 
+
+hist(residuals.sat) 
+
+student.res = studres(lm.full)
+plot(lm.full$fitted.values, student.res, xlab="Fitted Values", ylab="Studentized Residuals")
+
+```
+
+```{r}
+# Fit a linear regression model on the training dataset
+lm.fit <- lm(G3 ~ . + sex:absences, data = train)
+# Print summary of the model results
+summary(lm.fit)
+```
+
+```{r}
+# Predict on the test data
+predictions <- predict(lm.fit, newdata = test)
+
+# Evaluate model performance
+mse <- mean((test$G3 - predictions)^2)
+rmse <- sqrt(mse)
+mae <- mean(abs(test$G3 - predictions))
+r_squared <- summary(lm.fit)$r.squared
+adj_r_squared <- summary(lm.fit)$adj.r.squared
+
+# Print model performance metrics
+cat("Linear regression model performance:\n")
+cat(sprintf("MSE: %.2f\n", mse))
+cat(sprintf("RMSE: %.2f\n", rmse))
+cat(sprintf("MAE: %.2f\n", mae))
+cat(sprintf("R-squared: %.2f\n", r_squared))
+cat(sprintf("Adjusted R-squared: %.2f\n", adj_r_squared))
+```
+
+```{r}
+# Plots for the linear regression model
+par(mfrow = c(2, 2))
+plot(lm.fit)
+```
+
+```{r}
+# Best Subset selection 
+regfit.full <- regsubsets(G3 ~ ., df, nvmax = 23)
+reg.summary <- summary(regfit.full)
+reg.summary
+
+# By default, the regsubsets() function provides results up to the best eight-variable model. Using the nvmax option, we fit up to a 23-variable model.
+```
+
+```{r}
+# Plot Adjusted RSq
+par(mfrow = c(1, 3))
+plot(reg.summary$adjr2, xlab = "Number of Variables", ylab = "Adjusted RSq", type = "l")
+points(which.max(reg.summary$adjr2), reg.summary$adjr2[12], col = "red", cex = 2, pch = 20)
+
+# Plot Cp
+plot(reg.summary$cp, xlab = "Number of Variables", ylab = "Cp", type = "l")
+points(which.min(reg.summary$cp), reg.summary$cp[11], col = "red", cex = 2, pch = 20)
+
+# Plot bic
+plot(reg.summary$bic, xlab = "Number of Variables",
+    ylab = "BIC", type = "l")
+points(which.min(reg.summary$bic), reg.summary$bic[5], col = "red", cex = 2, pch = 20)
+```
+
+```{r}
+# Selected variables according to RSq
+plot(regfit.full, scale = "r2")
+```
+
+```{r}
+# Selected variables according to Adjusted RSq
+plot(regfit.full, scale = "adjr2")
+```
+
+```{r}
+# Selected variables according to Cp
+plot(regfit.full, scale = "Cp")
+min_cp_index <- which.min(reg.summary$cp)
+selected_vars <- names(coef(regfit.full, min_cp_index)[-1])
+selected_vars
+```
+
+```{r}
+# Selected variables according to bic
+plot(regfit.full, scale = "bic")
+```
+
+```{r}
+# Forward Stepwise Selection
+regfit.fwd <- regsubsets(G3 ~ ., data = df,
+                         nvmax = 23, method = "forward")
+summary(regfit.fwd)
+```
+
+```{r}
+# Backward Stepwise Selection
+regfit.bwd <- regsubsets(G3 ~ ., data = df,
+                         nvmax = 23, method = "backward")
+summary(regfit.bwd)
+```
+
+```{r}
+coef(regfit.bwd, 11)
+coef(regfit.fwd, 11)
+coef(regfit.full, 11)
+```
+
+```{r}
+# Linear Regression using the selected features
+selected_cols <- c("sex", "age", "famsize", "internet", "traveltime", "studytime", "schoolsup", "famsup", "romantic", "absences", "MplusFedu", "G3")
+train_sel <- train[selected_cols]
+test_sel <- test[selected_cols]
+
+# Fit a linear regression model using the selected features
+lm.sel  <- lm(G3 ~ . + sex:absences, data = train_sel)
+
+# Print the summary of the model
+summary(lm.sel)
+```
+
+```{r}
+# Predict on the test data
+predictions <- predict(lm.sel, newdata = test_sel)
+
+# Evaluate model performance
+mse <- mean((test_sel$G3 - predictions)^2)
+rmse <- sqrt(mse)
+mae <- mean(abs(test_sel$G3 - predictions))
+r_squared <- summary(lm.sel)$r.squared
+adj_r_squared <- summary(lm.sel)$adj.r.squared
+
+# Print model performance metrics
+cat("Linear regression model performance using the selected features:\n")
+cat(sprintf("MSE: %.2f\n", mse))
+cat(sprintf("RMSE: %.2f\n", rmse))
+cat(sprintf("MAE: %.2f\n", mae))
+cat(sprintf("R-squared: %.2f\n", r_squared))
+cat(sprintf("Adjusted R-squared: %.2f\n", adj_r_squared))
+```
+
+```{r}
+# We use the anova function to compare the two models
+anova(lm.fit, lm.sel)
+```
+
+**Choosing Among Models Using the Validation-Set Approach and Cross-Validation**
+
+```{r}
+# Perfom best subsetion selection on the training data
+regfit.best <- regsubsets(G3 ~ .,data = train, nvmax = 23)
+```
+
+```{r}
+test.mat <- model.matrix(G3 ~ ., data = test)
+
+val.errors <- rep(NA, 23)
+for (i in 1:23) {
+ coefi <- coef(regfit.best, id = i)
+ pred <- test.mat[, names(coefi)] %*% coefi
+ val.errors[i] <- mean((test$G3 - pred)^2)
+}
+```
+.
+```{r}
+val.errors
+```
+
+```{r}
+coef(regfit.best, which.min(val.errors))
+```
+
+```{r}
+ predict.regsubsets <- function(object, newdata, id, ...) {
+  form <- as.formula(object$call[[2]])
+  mat <- model.matrix(form, newdata)
+  coefi <- coef(object, id = id)
+  xvars <- names(coefi)
+  mat[, xvars] %*% coefi
+ }
+```
+
+```{r}
+regfit.best <- regsubsets(G3 ~ ., data = df, nvmax = 23)
+coef(regfit.best, which.min(val.errors))
+```
+
+We now try to choose among the models of different sizes using cross-validation.
+```{r}
+k <- 10
+n <- nrow(df)
+set.seed(1)
+folds <- sample(rep(1:k, length = n))
+
+cv.errors <- matrix(NA, k, 23,
+    dimnames = list(NULL, paste(1:23)))
+```
+
+```{r}
+for (j in 1:k) {
+  best.fit <- regsubsets(G3 ~ .,
+       data = df[folds != j, ],
+       nvmax = 23)
+  for (i in 1:23) {
+    pred <- predict(best.fit, df[folds == j, ], id = i)
+    cv.errors[j, i] <-
+         mean((df$G3[folds == j] - pred)^2)
+   }
+ }
+```
+
+```{r}
+mean.cv.errors <- apply(cv.errors, 2, mean)
+mean.cv.errors
+```
+```{r}
+par(mfrow = c(1, 1))
+plot(mean.cv.errors, type = "b")
+```
+
+```{r}
+reg.best <- regsubsets(G3 ~ ., data = train, nvmax = 23)
+coef(reg.best, 14)
+```
+
+```{r}
+se.cv.errors <- apply(cv.errors, 2, sd)/sqrt(10)
+plot(1:23, mean.cv.errors,
+    ylim=range(c(mean.cv.errors-se.cv.errors, mean.cv.errors+se.cv.errors)),
+    pch=23)
+# hack: we draw arrows but with very special "arrowheads"
+arrows(1:23, mean.cv.errors-se.cv.errors, type = "b", 1:23, mean.cv.errors+se.cv.errors, length=0.05, angle=90, code=3)
+```
+```{r}
+# Linear Regression using the selected features from CV
+selected_cols_cv <- c("sex", "age", "famsize", "Pstatus", "internet", "traveltime", "studytime", "schoolsup", "famsup", "romantic", "goout", "health", "absences", "MplusFedu","G3")
+
+train_sel_cv <- train[selected_cols_cv]
+test_sel_cv <- test[selected_cols_cv]
+
+# Fit a linear regression model using the selected features from CV
+lm.sel.cv  <- lm(G3 ~ . + sex:absences, data = train_sel_cv)
+
+# Print the summary of the model
+summary(lm.sel.cv)
+```
+
+```{r}
+# Predict on the test data
+predictions.cv <- predict(lm.sel.cv, newdata = test_sel_cv)
+
+# Evaluate model performance
+mse <- mean((test_sel_cv$G3 - predictions.cv)^2)
+rmse <- sqrt(mse)
+mae <- mean(abs(test_sel_cv$G3 - predictions.cv))
+r_squared <- summary(lm.sel.cv)$r.squared
+adj_r_squared <- summary(lm.sel.cv)$adj.r.squared
+
+# Print model performance metrics
+cat("Linear regression model performance using the selected features from CV:\n")
+cat(sprintf("MSE: %.2f\n", mse))
+cat(sprintf("RMSE: %.2f\n", rmse))
+cat(sprintf("MAE: %.2f\n", mae))
+cat(sprintf("R-squared: %.2f\n", r_squared))
+cat(sprintf("Adjusted R-squared: %.2f\n", adj_r_squared))
+```
+```{r}
+# We use the anova function to compare the two models
+anova(lm.fit, lm.sel.cv)
+```
+
+```{r}
+# Separate the target variable
+x_train <- as.matrix(subset(train, select = -G3))
+y_train <- train$G3
+x_test <- as.matrix(subset(test, select = -G3))
+y_test <- test$G3
+```
+
+**Lasso for Linear Regression**
+
+```{r}
+# Fit a lasso regression model
+grid <- 10^seq(10, -2, length = 100)
+lasso.mod <- glmnet(x_train, y_train, alpha = 1, lambda = grid)
+plot(lasso.mod)
+```
+
+```{r}
+# We perform cross-validation to identify the optimal value of the regularization parameter lambda
+set.seed(123)
+cv.out <- cv.glmnet(x_train, y_train, alpha = 1)
+plot(cv.out)
+```
+
+```{r}
+# Calculate bestlam
+bestlam <- cv.out$lambda.min
+bestlam
+lasso.pred <- predict(lasso.mod, s = bestlam, newx = x_test)
+mean((lasso.pred - y_test)^2)
+```
+
+```{r}
+# Calculate bestlam1se
+bestlam1se <- cv.out$lambda.1se
+bestlam1se
+lasso.pred1se <- predict(lasso.mod, s = bestlam1se, newx = x_test)
+mean((lasso.pred1se - y_test)^2)
+```
+
+```{r}
+# Variables chosen by cross-validation
+out <- glmnet(x_train, y_train, alpha = 1, lambda = bestlam)
+lasso.coef <- predict(out, type = "coefficients",s = bestlam)[1:24, ]
+lasso.coef
+```
+```{r}
+lasso.coef[lasso.coef != 0]
+```
+
+```{r}
+# Lasso using the selected features
+selected_vars <- names(lasso.coef)[-1][lasso.coef[-1] != 0]
+selected_vars
+
+x_train_selected <- x_train[, selected_vars]
+x_test_selected <- x_test[, selected_vars]
+
+out_selected <- glmnet(x_train_selected, y_train, alpha = 1, lambda = bestlam)
+
+# Predict on test data
+lasso.pred_selected <- predict(out_selected, newx = x_test_selected, s = bestlam)
+
+# Evaluate model performance
+mse <- mean((lasso.pred_selected - y_test)^2)
+rmse <- sqrt(mse)
+mae <- mean(abs(test$G3 - lasso.pred_selected))
+
+# Print model performance metrics
+cat("Lasso model performance using selected features:\n")
+cat(sprintf("MSE: %.2f\n", mse))
+cat(sprintf("RMSE: %.2f\n", rmse))
+cat(sprintf("MAE: %.2f\n", mae))
+```
+
+**Ridge for Linear Regression**
+
+```{r}
+grid <- 10^seq(10, -2, length = 100)
+ridge.mod <- glmnet(x_train, y_train, alpha = 0,
+                    lambda = grid, thresh = 1e-12)
+```
+
+```{r}
+ridge.pred <- predict(ridge.mod, s = 4, newx = x_test)
+
+# Evaluate model performance
+mse <- mean((test$G3 - ridge.pred)^2)
+rmse <- sqrt(mse)
+mae <- mean(abs(test$G3 - ridge.pred))
+
+# Print model performance metrics
+cat("Ridge for Linear regression model performance:\n")
+cat(sprintf("MSE: %.2f\n", mse))
+cat(sprintf("RMSE: %.2f\n", rmse))
+cat(sprintf("MAE: %.2f\n", mae))
+```
+
+```{r}
+ridge.pred <- predict(ridge.mod, s = 0, newx = x_test,
+                      exact = T, x = x_train, y = y_train)
+
+# Evaluate model performance
+mse <- mean((test$G3 - ridge.pred)^2)
+rmse <- sqrt(mse)
+mae <- mean(abs(test$G3 - ridge.pred))
+r_squared <- summary(lm.full)$r.squared
+adj_r_squared <- summary(lm.full)$adj.r.squared
+
+# Print model performance metrics
+cat("Ridge for Linear regression model performance:\n")
+cat(sprintf("MSE: %.2f\n", mse))
+cat(sprintf("RMSE: %.2f\n", rmse))
+cat(sprintf("MAE: %.2f\n", mae))
+cat(sprintf("R-squared: %.2f\n", r_squared))
+cat(sprintf("Adjusted R-squared: %.2f\n", adj_r_squared))
+```
+
+```{r}
+predict(ridge.mod, s = 0, exact = T, type = "coefficients",
+        x = x_train, y = y_train)[1:12, ]
+```
+
+```{r}
+set.seed(20)
+
+cv.out <- cv.glmnet(x_train, y_train, alpha = 0)
+plot(cv.out)
+```
+
+```{r}
+bestlam <- cv.out$lambda.min
+bestlam
+
+ridge.pred <- predict(ridge.mod, s = bestlam,
+                      newx = x_test)
+
+# Evaluate model performance
+mse <- mean((test$G3 - ridge.pred)^2)
+rmse <- sqrt(mse)
+mae <- mean(abs(test$G3 - ridge.pred))
+
+# Print model performance metrics
+cat("Ridge for Linear regression model performance:\n")
+cat(sprintf("MSE: %.2f\n", mse))
+cat(sprintf("RMSE: %.2f\n", rmse))
+cat(sprintf("MAE: %.2f\n", mae))
+```
+
+```{r}
+bestlam1se <- cv.out$lambda.1se
+bestlam1se
+
+ridge.pred <- predict(ridge.mod, s = bestlam1se,
+                      newx = x_test)
+
+# Evaluate model performance
+mse <- mean((test$G3 - ridge.pred)^2)
+rmse <- sqrt(mse)
+mae <- mean(abs(test$G3 - ridge.pred))
+r_squared <- summary(lm.full)$r.squared
+adj_r_squared <- summary(lm.full)$adj.r.squared
+
+# Print model performance metrics
+cat("Ridge for Linear regression model performance:\n")
+cat(sprintf("MSE: %.2f\n", mse))
+cat(sprintf("RMSE: %.2f\n", rmse))
+cat(sprintf("MAE: %.2f\n", mae))
+cat(sprintf("R-squared: %.2f\n", r_squared))
+cat(sprintf("Adjusted R-squared: %.2f\n", adj_r_squared))
+```
+
+**Lasso for Poisson Regression**
+
+```{r}
+# Fit the Lasso model with the optimal value of lambda
+lasso.fit <- glmnet(x_train, y_train, family = "poisson", alpha = 1)
+plot(lasso.fit)
+```
+
+```{r}
+cv.fit <- cv.glmnet(x_train, y_train, family = "poisson", alpha = 1)
+plot(cv.fit)
+```
+
+```{r}
+# Find the optimal value of lambda
+lambda.min <- cv.fit$lambda.min
+lambda.min
+lasso.pred <- predict(lasso.fit, s = lambda.min, newx = x_test, type = "response")
+
+# Evaluate model performance
+mse <- mean((test$G3 - lasso.pred)^2)
+rmse <- sqrt(mse)
+mae <- mean(abs(test$G3 - lasso.pred))
+
+
+# Print model performance metrics
+cat("Lasso for Poisson regression model performance:\n")
+cat(sprintf("MSE: %.2f\n", mse))
+cat(sprintf("RMSE: %.2f\n", rmse))
+cat(sprintf("MAE: %.2f\n", mae))
+
+```
+
+```{r}
+X <- as.matrix(df[,-22])
+y <- df$G3
+out <- glmnet(X, y, alpha = 1)
+lasso.coef <- predict(out, type = "coefficients", s = lambda.min)[1:24, ]
+lasso.coef
+```
+
+```{r}
+lasso.coef[lasso.coef != 0]
+```
+
+```{r}
+df <- read.csv("train_processed.csv")
+encode_ordinal <- function(x, order = unique(x)) {
+  x <- as.numeric(factor(x, levels = order, exclude = NULL))
+  x
+}
+```
+
+```{r}
+df$school <- as.factor(df$school)
+df$sex <- as.factor(df$sex)
+df$famsize <- as.factor(df$famsize)
+df$Pstatus <- as.factor(df$Pstatus)
+df$reason <- as.factor(df$reason)
+df$guardian <- as.factor(df$guardian)
+df$schoolsup <- as.factor(df$schoolsup)
+df$famsup <- as.factor(df$famsup)
+df$paid <- as.factor(df$paid)
+df$activities <- as.factor(df$activities)
+df$nursery <- as.factor(df$nursery)
+df$internet <- as.factor(df$internet)
+df$romantic <- as.factor(df$romantic)
+
+df$goout <- encode_ordinal(df$goout)
+df$MplusFedu <- encode_ordinal(df$MplusFedu)
+df$famrel <- encode_ordinal(df$famrel)
+df$health <- encode_ordinal(df$health)
+```
+
+```{r}
+impute_df <- df %>% group_by(sex, age) %>% summarize("G3"=median(G3))
+df$G3 <- ifelse(df$G3 == 0,
+                   impute_df$G3[match(df$age, df$sex, impute_df$G3)],
+                   df$G3)
+```
+
+```{r}
+# check mean and variance equality assumption
+df %>% group_by(age) %>% summarise("G3_mean"=mean(G3), "G3_variance"=var(G3), "Students"=n())
+```
+
+```{r}
+df_plot <- df %>% filter(age<=18) %>% select(age, G3)
+df_plot$age <- as.factor(df_plot$age)
+df_plot$g3_mean <- (df_plot %>% group_by(age) %>% mutate(mean_=mean(G3)))$mean_
+ggplot(df_plot, aes(x=G3)) +
+  geom_density() +
+  facet_grid(~fct_rev(age)) +
+  geom_vline(
+    aes(xintercept=df_plot$g3_mean, group=df_plot$g3_mean, color="Mean of G3"),
+    linetype="dashed"
+  ) +
+  scale_color_manual(
+    name="",
+    values=c(
+      `Mean of G3`="red"
+    )
+  ) +
+  coord_flip() +
+  scale_y_reverse() +
+  theme(panel.spacing.x=unit(1.5, "lines"))
+```
+
+```{r}
+# check mean and variance equality assumption
+df %>% group_by(studytime) %>% summarise("G3_mean"=mean(G3), "G3_variance"=var(G3), "Students"=n())
+```
+
+```{r}
+df_plot <- df %>% select(studytime, G3)
+df_plot$studytime <- factor(df_plot$studytime, levels = c("2", "1", "3", "4"))
+df_plot$g3_mean <- (df_plot %>% group_by(studytime) %>% mutate(mean_=mean(G3)))$mean_
+ggplot(df_plot, aes(x=G3)) +
+  geom_density() +
+  facet_grid(~studytime) +
+  geom_vline(
+    aes(xintercept=df_plot$g3_mean, group=df_plot$g3_mean, color="Mean of G3"),
+    linetype="dashed"
+  ) +
+  scale_color_manual(
+    name="",
+    values=c(
+      `Mean of G3`="red"
+    )
+  ) +
+  coord_flip() +
+  scale_y_reverse() +
+  theme(panel.spacing.x=unit(1.5, "lines"))
+```
+
+```{r}
+set.seed(143)
+sample <- sample(c(TRUE, FALSE), nrow(df), replace=TRUE, prob=c(0.8,0.2))
+train <- df[sample, ]
+test <- df[!sample, ]
+```
+
+```{r}
+pois.model.full <- glm(G3 ~ . + sex:absences, family = poisson, data = df)
+summary(pois.model.full)
+```
+
+```{r}
+# Reference: https://www.rdocumentation.org/packages/stats/versions/3.6.2/topics/step
+formula <- G3 ~ . + sex:absences
+model <- glm(formula, family = poisson, data = df)
+pois.model.forw <- step(model,
+      direction = "forward",
+      scope = formula,
+      trace = 1)
+```
+
+```{r}
+pois.model.backw <- step(model,
+      direction = "backward",
+      scope = formula,
+      trace = 1)
+summary(pois.model.backw)
+```
+
+```{r}
+pois.model.backw <- step(model,
+      direction = "both",
+      scope = formula,
+      trace = 1)
+summary(pois.model.backw)
+```
+
+```{r}
+# Reference: https://www.rdocumentation.org/packages/bestglm/versions/0.37.3/topics/bestglm
+df.best <- df[,(names(df) %in% colnames(pois.model.backw$model)) & (names(df) != "G3")]
+df.best$G3 <- df$G3 # place G3 as the last variable so that `bestglm` can identify it as a target variable
+vars <- ncol(df.best)
+best.fit <- bestglm(df.best,
+     family = poisson,
+     nvmax = vars,
+     IC = "AIC",
+     TopModels = 1,
+     CVArgs = list(Method="HTF", K=10, REP=1)) # HTF represents K-fold cross-validation
+best.fit$BestModel
+```
+
+```{r}
+pois.model.full.train <- glm(G3 ~ . + sex:absences, family = poisson, data = train)
+pois.model.full.pred <- predict(pois.model.full.train, test, type = "response")
+print(paste0("Test RMSE: ", as.character(sqrt(mean((test$G3 - pois.model.full.pred)^2)))))
+```
+
+```{r}
+X <- train[,(names(train) != "G3")]
+dummy_colnames <- c("sex", "school", "famsize", "Pstatus", "reason", "nursery", "internet", "guardian", "schoolsup", "famsup", "paid", "activities", "romantic")
+X <- dummy_cols(X, dummy_colnames) # generate dummy columns to ensure error-less function work
+X <- X[,!(names(X) %in% c(dummy_colnames))]
+X$sex_absences_f <- X$absences * X$sex_F # # generate female interaction term
+X$sex_absences_m <- X$absences * X$sex_M # generate male interaction term
+X <- as.matrix(X)
+y <- train$G3
+
+X_test <- test[,(names(test) != "G3")]
+X_test <- dummy_cols(X_test, dummy_colnames) # generate dummy columns to ensure error-less function work
+X_test <- X_test[,!(names(X_test) %in% c(dummy_colnames))]
+X_test$sex_absences_f <- X_test$absences * X_test$sex_F # # generate female interaction term
+X_test$sex_absences_m <- X_test$absences * X_test$sex_M # generate male interaction term
+X_test <- as.matrix(X_test)
+y_test <- test$G3
+```
+
+```{r}
+# Reference: https://www.rdocumentation.org/packages/glmnet/versions/4.1-6/topics/cv.glmnet
+set.seed(143)
+lambdas <- 10^seq(10, -2, length = 100)
+cv_ridge <- cv.glmnet(X, y, alpha = 0, lambda = lambdas, family = "poisson", type.measure = "deviance", nfolds = 10)
+plot(cv_ridge)
+optimal_lambda <- cv_ridge$lambda.min
+optimal_lambda
+```
+
+```{r}
+# Reference: https://www.rdocumentation.org/packages/glmnet/versions/4.1-7/topics/glmnet
+pois.model.ridge.train <- glmnet(X, y, family = "poisson", data = train, alpha = 0, lambda = optimal_lambda, standardize = TRUE)
+pois.model.ridge.pred <- predict(pois.model.ridge.train, s = optimal_lambda, newx = X_test, type = "response")
+print(paste0("Ridge Test RMSE: ", as.character(sqrt(mean((y_test - pois.model.ridge.pred)^2)))))
+
+# Evaluate model performance
+mse <- mean((test$G3 - pois.model.ridge.pred)^2)
+rmse <- sqrt(mse)
+mae <- mean(abs(test$G3 - pois.model.ridge.pred))
+
+# Print model performance metrics
+cat("Ridge for Linear regression model performance:\n")
+cat(sprintf("MSE: %.2f\n", mse))
+cat(sprintf("RMSE: %.2f\n", rmse))
+cat(sprintf("MAE: %.2f\n", mae))
+```
+
+```{r}
+pois.model.backw.train <- glm(G3 ~ . + sex:absences, family = poisson, data = train[,(names(train) %in% colnames(pois.model.backw$model))])
+pois.model.backw.pred <- predict(pois.model.backw.train, test[,(names(test) %in% colnames(pois.model.backw$model))], type = "response")
+
+# Evaluate model performance
+mse <- mean((test$G3 - pois.model.backw.pred)^2)
+rmse <- sqrt(mse)
+mae <- mean(abs(test$G3 - pois.model.backw.pred))
+
+# Print model performance metrics
+cat("Ridge for Linear regression model performance:\n")
+cat(sprintf("MSE: %.2f\n", mse))
+cat(sprintf("RMSE: %.2f\n", rmse))
+cat(sprintf("MAE: %.2f\n", mae))
+```
+
